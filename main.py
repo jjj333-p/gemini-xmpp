@@ -128,7 +128,7 @@ class MUCBot(slixmpp.ClientXMPP):
                 r = "The llm refused to respond"
 
             # format quote
-            rf = f"{msg["from"].resource}\n> {"> ".join(msg["body"].splitlines())}\n\n{r}"
+            rf = f"{msg['from'].resource}\n> {'> '.join(msg['body'].splitlines())}\n\n{r}"
 
             self.send_message(
                 mto=msg['from'].bare,
