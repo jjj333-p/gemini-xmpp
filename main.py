@@ -45,15 +45,19 @@ def describe_from_url(muc: str, image_url: str) -> str:
         chat = client.chats.create(model="gemini-2.0-flash")
         chats[muc] = chat
 
-    response = chat.send_message(
-        [
-            types.Part.from_bytes(
-                data=image.content,
-                mime_type=content_type,
-            ),
-            'Describe this image in detail'
-        ]
-    )
+    try:
+        response = chat.send_message(
+            [
+                types.Part.from_bytes(
+                    data=image.content,
+                    mime_type=content_type,
+                ),
+                'Describe this image in detail'
+            ]
+        )
+    except Exception as e:
+        print(e)
+        return str(e)
 
     print(response)
 
@@ -78,7 +82,10 @@ See my source code at https://github.com/jjj333-p/gemini-xmpp
         chat = client.chats.create(model="gemini-2.0-flash")
         chats[muc] = chat
 
-    response = chat.send_message(body)
+    try:
+        response = chat.send_message(body)
+    except Exception as e:
+        return str(e)
     return response.text
 
 
@@ -122,7 +129,7 @@ class MUCBot(slixmpp.ClientXMPP):
             return
 
         # chat response
-        if msg["body"].startswith(self.nick):
+        if msg["body"].lower().startswith(self.nick.lower()):
             r = respond_text(msg["from"].bare, msg["body"])
             if r == "":
                 r = "The llm refused to respond"
