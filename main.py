@@ -52,7 +52,7 @@ def describe_from_url(muc: str, image_url: str) -> str:
                     data=image.content,
                     mime_type=content_type,
                 ),
-                'Describe this image in detail'
+                'Describe this image with as much detail as possible in 1 to 2 sentences'
             ]
         )
     except Exception as e:
