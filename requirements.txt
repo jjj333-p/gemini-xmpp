@@ -3,3 +3,4 @@ slixmpp
 google
 google.genai
 markdown-it-py
+aiohttp
