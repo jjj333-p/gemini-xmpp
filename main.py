@@ -12,6 +12,22 @@ import requests
 import slixmpp
 from google import genai
 from google.genai import types
+from markdown_it import MarkdownIt
+
+# class HighlightRenderer(RendererHTML):
+#     def render_token(self, tokens, idx, options, env):
+#         token = tokens[idx]
+#         if token.type == "fence" and token.info:
+#             try:
+#                 lexer = get_lexer_by_name(token.info.strip())
+#                 formatter = HtmlFormatter()
+#                 return highlight(token.content, lexer, formatter)
+#             except Exception:
+#                 pass
+#         return super().render_token(tokens, idx, options, env)
+
+
+md = MarkdownIt()  # (renderer_cls=HighlightRenderer)
 
 # formats compat with gemini image comprehension
 acceptable_formats: list[str] = [
@@ -113,6 +129,12 @@ class MUCBot(slixmpp.ClientXMPP):
         self.add_event_handler("muc::%s::got_online" % self.rooms[0],
                                self.muc_online)
 
+        self.register_plugin('xep_0030')  # Service Discovery
+        self.register_plugin('xep_0045')  # Multi-User Chat
+        self.register_plugin('xep_0199')  # XMPP Ping
+        self.register_plugin('xep_0461')  # Message Replies
+        self.register_plugin('xep_0363')  # HTTP file upload
+
     async def start(self, event):
 
         await self.get_roster()
@@ -122,7 +144,7 @@ class MUCBot(slixmpp.ClientXMPP):
         for room in self.rooms:
             self.plugin['xep_0045'].join_muc(room, self.nick)
 
-    def muc_message(self, msg):
+    async def muc_message(self, msg):
 
         # dont respond to self
         if msg['mucnick'] == self.nick:
@@ -134,8 +156,30 @@ class MUCBot(slixmpp.ClientXMPP):
             if r == "":
                 r = "The llm refused to respond"
 
+            # html encode and then convert to bytes
+            html = md.render(r)
+            r_bytes = html.encode("utf-8")
+
+            # upload
+            try:
+                url = await self['xep_0363'].upload_file(
+                    filename="o.html",
+                    # domain=self.domain,
+                    timeout=10,
+                    input_file=r_bytes,
+                    size=len(r_bytes),
+                    content_type="text/html",
+                )
+            except Exception as e:
+                url = str(e)
+
+            print(url)
+
+            if len(r) > 315:
+                r = r[:300] + " { truncated }"
+
             # format quote
-            rf = f"{msg['from'].resource}\n> {'> '.join(msg['body'].splitlines())}\n\n{r}"
+            rf = f"{msg['from'].resource}\n> {'> '.join(msg['body'].splitlines())}\n{r}\n{url}"
 
             self.send_message(
                 mto=msg['from'].bare,
@@ -182,10 +226,6 @@ class MUCBot(slixmpp.ClientXMPP):
 
 if __name__ == '__main__':
     xmpp = MUCBot(login["jid"], login["password"], login["rooms"], login["displayname"])
-    xmpp.register_plugin('xep_0030')  # Service Discovery
-    xmpp.register_plugin('xep_0045')  # Multi-User Chat
-    xmpp.register_plugin('xep_0199')  # XMPP Ping
-    xmpp.register_plugin('xep_0461')  # Message Replies
 
     # Connect to the XMPP server and start processing XMPP stanzas.
     xmpp.connect()

@@ -2,3 +2,4 @@ requests
 slixmpp
 google
 google.genai
+markdown-it-py
