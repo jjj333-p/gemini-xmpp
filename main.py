@@ -156,30 +156,31 @@ class MUCBot(slixmpp.ClientXMPP):
             if r == "":
                 r = "The llm refused to respond"
 
-            # html encode and then convert to bytes
-            html = md.render(r)
-            r_bytes = html.encode("utf-8")
-
-            # upload
-            try:
-                url = await self['xep_0363'].upload_file(
-                    filename="o.html",
-                    # domain=self.domain,
-                    timeout=10,
-                    input_file=r_bytes,
-                    size=len(r_bytes),
-                    content_type="text/html",
-                )
-            except Exception as e:
-                url = str(e)
-
-            print(url)
-
             if len(r) > 315:
-                r = r[:300] + " { truncated }"
+
+                # html encode and then convert to bytes
+                html = md.render(r)
+                r_bytes = html.encode("utf-16")
+
+                # upload
+                try:
+                    url = await self['xep_0363'].upload_file(
+                        filename="o.html",
+                        # domain=self.domain,
+                        timeout=10,
+                        input_file=r_bytes,
+                        size=len(r_bytes),
+                        content_type="text/html",
+                    )
+                except Exception as e:
+                    url = str(e)
+
+                print(url)
+
+                r = r[:300] + " { truncated } \n" + url
 
             # format quote
-            rf = f"{msg['from'].resource}\n> {'> '.join(msg['body'].splitlines())}\n{r}\n{url}"
+            rf = f"{msg['from'].resource}\n> {'> '.join(msg['body'].splitlines())}\n{r}"
 
             self.send_message(
                 mto=msg['from'].bare,
