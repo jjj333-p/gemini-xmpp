@@ -21,6 +21,25 @@ images too.
 API token for gemini, as per the gemini api docs
 
 ```
+    "nanogpt-api": "[REDACTED]",
+```
+
+API token for NanoGPT integration
+
+```
+    "nanogpt-image-model": "hidream",
+```
+
+The model name to use for NanoGPT image generation
+
+```
+    "nanogpt-image-w": 1360,
+    "nanogpt-image-h": 768,
+```
+
+Width and height settings for generated images (in pixels)
+
+```
     "jid": "gemini@pain.agency",
 ```
 

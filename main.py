@@ -5,8 +5,11 @@ Licensed under AGPL 3.0 or later, with no warranty.
 Copyright 2025
 """
 import asyncio
+import base64
 import json
 import re
+import time
+from typing import Generator
 
 import requests
 import slixmpp
@@ -105,6 +108,27 @@ See my source code at https://github.com/jjj333-p/gemini-xmpp
     return response.text
 
 
+def generate_image(muc: str, prompt: str) -> Generator[bytes]:
+    print(f"Generating image \"{prompt}\"")
+
+    headers = {"x-api-key": login["nanogpt-api"]}
+
+    response = requests.post(
+        f"https://nano-gpt.com/api/generate-image",
+        headers=headers,
+        json={
+            "model": login["nanogpt-image-model"],
+            "prompt": prompt,
+            "width": login["nanogpt-image-w"],
+            "height": login["nanogpt-image-h"],
+        }
+    )
+
+    result = response.json()
+    for b64 in result["data"]:
+        yield base64.b64decode(b64["b64_json"])
+
+
 class MUCBot(slixmpp.ClientXMPP):
 
     def __init__(self, jid, password, rooms, nick):
@@ -134,6 +158,7 @@ class MUCBot(slixmpp.ClientXMPP):
         self.register_plugin('xep_0199')  # XMPP Ping
         self.register_plugin('xep_0461')  # Message Replies
         self.register_plugin('xep_0363')  # HTTP file upload
+        self.register_plugin('xep_0066')  # SIMS
 
     async def start(self, event):
 
@@ -188,15 +213,44 @@ class MUCBot(slixmpp.ClientXMPP):
                 mtype='groupchat'
             )
 
-            # self.plugin['xep_0461'].send_reply(
-            #     reply_to=msg['from'],
-            #     reply_id=msg['stanza-id'],
-            #     fallback=rf,
-            #     quoted_nick=msg["from"].resource,
-            #     mto=msg['from'].bare,
-            #     mbody=r,
-            #     mtype='groupchat',
-            # )
+        elif msg["body"].lower().startswith(login["nanogpt-image-model"]):
+            # dont respond to self
+            if msg['mucnick'] == self.nick:
+                return
+
+            for img_bytes in generate_image(
+                    msg["from"],
+                    msg["body"][len(login["nanogpt-image-model"]) + 1:]
+            ):
+                temp_path = f'/tmp/generated_{msg["from"].bare}_{int(time.time())}.jpeg'
+                with open(temp_path, 'wb') as f:
+                    f.write(img_bytes)
+
+                # upload
+                try:
+                    url = await self['xep_0363'].upload_file(
+                        filename="generated.jpeg",
+                        # domain=self.domain,
+                        timeout=10,
+                        input_file=img_bytes,
+                        size=len(img_bytes),
+                        content_type="image/jpeg",
+                    )
+                except Exception as e:
+                    url = str(e)
+
+                print(url)
+
+                # boilerplate message obj
+                message = self.make_message(
+                    mto=msg['from'].bare,
+                    mbody=url,
+                    mtype='groupchat'
+                )
+
+                # attach media tag
+                message['oob']['url'] = url
+                message.send()
 
         urls_found = []
         for line in msg["body"].splitlines():
