@@ -7,11 +7,13 @@ Copyright 2025
 import asyncio
 import base64
 import json
+import os
 import re
 import time
 from typing import Generator
 
-import requests
+import aiofiles
+import aiohttp
 import slixmpp
 from google import genai
 from google.genai import types
@@ -52,12 +54,14 @@ client = genai.Client(api_key=login["gemini-api"])
 chats = {}
 
 
-def describe_from_url(muc: str, image_url: str) -> str:
-    image = requests.get(image_url)
-    content_type = image.headers.get('content-type', 'image/jpeg')  # fallback to jpeg if not found
+async def describe_from_url(muc: str, image_url: str) -> str:
+    async with aiohttp.ClientSession() as session:
+        async with session.get(image_url) as response:
+            content_type = response.headers.get('content-type', 'image/jpeg')  # fallback to jpeg if not found
+            if content_type not in acceptable_formats:
+                return ""
 
-    if content_type not in acceptable_formats:
-        return ""
+            image_content = await response.read()
 
     chat = chats.get(muc)
     if chat is None:
@@ -68,7 +72,7 @@ def describe_from_url(muc: str, image_url: str) -> str:
         response = chat.send_message(
             [
                 types.Part.from_bytes(
-                    data=image.content,
+                    data=image_content,
                     mime_type=content_type,
                 ),
                 'Describe this image with as much detail as possible in 1 to 2 sentences'
@@ -83,7 +87,7 @@ def describe_from_url(muc: str, image_url: str) -> str:
     return response.text
 
 
-def respond_text(muc: str, body: str) -> str:
+async def respond_text(muc: str, body: str) -> str:
     key_body: str = body[len(login["displayname"]) + 2:]
     if key_body.startswith("forget"):
         if chats.get(muc) is not None:
@@ -108,25 +112,25 @@ See my source code at https://github.com/jjj333-p/gemini-xmpp
     return response.text
 
 
-def generate_image(muc: str, prompt: str) -> Generator[bytes]:
+async def generate_image(muc: str, prompt: str) -> Generator[bytes]:
     print(f"Generating image \"{prompt}\"")
 
     headers = {"x-api-key": login["nanogpt-api"]}
 
-    response = requests.post(
-        f"https://nano-gpt.com/api/generate-image",
-        headers=headers,
-        json={
-            "model": login["nanogpt-image-model"],
-            "prompt": prompt,
-            "width": login["nanogpt-image-w"],
-            "height": login["nanogpt-image-h"],
-        }
-    )
-
-    result = response.json()
-    for b64 in result["data"]:
-        yield base64.b64decode(b64["b64_json"])
+    async with aiohttp.ClientSession() as session:
+        async with session.post(
+                f"https://nano-gpt.com/api/generate-image",
+                headers=headers,
+                json={
+                    "model": login["nanogpt-image-model"],
+                    "prompt": prompt,
+                    "width": login["nanogpt-image-w"],
+                    "height": login["nanogpt-image-h"],
+                }
+        ) as response:
+            result = await response.json()
+            for b64 in result["data"]:
+                yield base64.b64decode(b64["b64_json"])
 
 
 class MUCBot(slixmpp.ClientXMPP):
@@ -161,7 +165,6 @@ class MUCBot(slixmpp.ClientXMPP):
         self.register_plugin('xep_0066')  # SIMS
 
     async def start(self, event):
-
         await self.get_roster()
         self.send_presence()
 
@@ -170,19 +173,17 @@ class MUCBot(slixmpp.ClientXMPP):
             self.plugin['xep_0045'].join_muc(room, self.nick)
 
     async def muc_message(self, msg):
-
         # dont respond to self
         if msg['mucnick'] == self.nick:
             return
 
         # chat response
         if msg["body"].lower().startswith(self.nick.lower()):
-            r = respond_text(msg["from"].bare, msg["body"])
+            r = await respond_text(msg["from"].bare, msg["body"])
             if r == "":
                 r = "The llm refused to respond"
 
             if len(r) > 315:
-
                 # html encode and then convert to bytes
                 html = md.render(r)
                 r_bytes = html.encode("utf-16")
@@ -218,13 +219,13 @@ class MUCBot(slixmpp.ClientXMPP):
             if msg['mucnick'] == self.nick:
                 return
 
-            for img_bytes in generate_image(
+            async for img_bytes in generate_image(
                     msg["from"],
                     msg["body"][len(login["nanogpt-image-model"]) + 1:]
             ):
                 temp_path = f'/tmp/generated_{msg["from"].bare}_{int(time.time())}.jpeg'
-                with open(temp_path, 'wb') as f:
-                    f.write(img_bytes)
+                async with aiofiles.open(temp_path, 'wb') as f:
+                    await f.write(img_bytes)
 
                 # upload
                 try:
@@ -252,6 +253,8 @@ class MUCBot(slixmpp.ClientXMPP):
                 message['oob']['url'] = url
                 message.send()
 
+                os.remove(temp_path)
+
         urls_found = []
         for line in msg["body"].splitlines():
             # filter out replies
@@ -264,7 +267,7 @@ class MUCBot(slixmpp.ClientXMPP):
                 urls_found.append(url)
 
                 # generate description
-                desc = describe_from_url(msg['from'].bare, url)
+                desc = await describe_from_url(msg['from'].bare, url)
                 if desc != "":
                     rf = f"> {url}\n\n{desc}"
                     self.send_message(
