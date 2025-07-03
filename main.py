@@ -117,23 +117,26 @@ async def generate_image(muc: str, prompt: str) -> AsyncGenerator[bytes, None]:
 
     headers = {"x-api-key": login["nanogpt-api"]}
 
-    async with aiohttp.ClientSession() as session:
-        async with session.post(
-                f"https://nano-gpt.com/api/generate-image",
-                headers=headers,
-                json={
-                    "model": login["nanogpt-image-model"],
-                    "prompt": prompt,
-                    "width": login["nanogpt-image-w"],
-                    "height": login["nanogpt-image-h"],
-                }
-        ) as response:
-            result = await response.json()
-            for b64 in result.get("data", []):
-                b64_data = b64.get("b64_json")
-                if b64_data is None:
-                    continue
-                yield base64.b64decode(b64_data)
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                    f"https://nano-gpt.com/api/generate-image",
+                    headers=headers,
+                    json={
+                        "model": login["nanogpt-image-model"],
+                        "prompt": prompt,
+                        "width": login["nanogpt-image-w"],
+                        "height": login["nanogpt-image-h"],
+                    }
+            ) as response:
+                result = await response.json()
+                for b64 in result.get("data", []):
+                    b64_data = b64.get("b64_json")
+                    if b64_data is None:
+                        continue
+                    yield base64.b64decode(b64_data)
+    except Exception as e:
+        print(e)
 
 
 class MUCBot(slixmpp.ClientXMPP):
