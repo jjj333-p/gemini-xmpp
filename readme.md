@@ -7,7 +7,8 @@ images too.
 ### Use
 
 - It will scan every url found, and respond to the ones that are supported images
-- images starting with its displayname it will respond to
+- messages starting with its displayname it will respond to.
+- Messages starting with the image generation model (`hidream` on this instance) will generate an image
 - use `{displayname}, forget` to clear context window
 - use `{displayname}, help` to get back here
 
