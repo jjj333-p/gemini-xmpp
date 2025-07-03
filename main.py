@@ -10,7 +10,7 @@ import json
 import os
 import re
 import time
-from typing import Generator
+from typing import AsyncGenerator
 
 import aiofiles
 import aiohttp
@@ -112,7 +112,7 @@ See my source code at https://github.com/jjj333-p/gemini-xmpp
     return response.text
 
 
-async def generate_image(muc: str, prompt: str) -> Generator[bytes]:
+async def generate_image(muc: str, prompt: str) -> AsyncGenerator[bytes, None]:
     print(f"Generating image \"{prompt}\"")
 
     headers = {"x-api-key": login["nanogpt-api"]}
@@ -129,8 +129,11 @@ async def generate_image(muc: str, prompt: str) -> Generator[bytes]:
                 }
         ) as response:
             result = await response.json()
-            for b64 in result["data"]:
-                yield base64.b64decode(b64["b64_json"])
+            for b64 in result.get("data", []):
+                b64_data = b64.get("b64_json")
+                if b64_data is None:
+                    continue
+                yield base64.b64decode(b64_data)
 
 
 class MUCBot(slixmpp.ClientXMPP):
@@ -219,10 +222,13 @@ class MUCBot(slixmpp.ClientXMPP):
             if msg['mucnick'] == self.nick:
                 return
 
+            image_generated = False
             async for img_bytes in generate_image(
                     msg["from"],
                     msg["body"][len(login["nanogpt-image-model"]) + 1:]
             ):
+                image_generated = True
+
                 temp_path = f'/tmp/generated_{msg["from"].bare}_{int(time.time())}.jpeg'
                 async with aiofiles.open(temp_path, 'wb') as f:
                     await f.write(img_bytes)
@@ -254,6 +260,13 @@ class MUCBot(slixmpp.ClientXMPP):
                 message.send()
 
                 os.remove(temp_path)
+
+            if not image_generated:
+                self.send_message(
+                    mto=msg['from'].bare,
+                    mbody=f"Failed to generate any images for prompt {msg['body']}",
+                    mtype='groupchat'
+                )
 
         urls_found = []
         for line in msg["body"].splitlines():
