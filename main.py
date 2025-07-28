@@ -7,12 +7,9 @@ Copyright 2025
 import asyncio
 import base64
 import json
-import os
 import re
-import time
 from typing import AsyncGenerator
 
-import aiofiles
 import aiohttp
 import slixmpp
 from google import genai
@@ -54,15 +51,7 @@ client = genai.Client(api_key=login["gemini-api"])
 chats = {}
 
 
-async def describe_from_url(muc: str, image_url: str) -> str:
-    async with aiohttp.ClientSession() as session:
-        async with session.get(image_url) as response:
-            content_type = response.headers.get('content-type', 'image/jpeg')  # fallback to jpeg if not found
-            if content_type not in acceptable_formats:
-                return ""
-
-            image_content = await response.read()
-
+async def describe_from_bytes(muc: str, image_content: bytes, content_type: str) -> str:
     chat = chats.get(muc)
     if chat is None:
         chat = client.chats.create(model="gemini-2.0-flash")
@@ -85,6 +74,22 @@ async def describe_from_url(muc: str, image_url: str) -> str:
     print(response)
 
     return response.text
+
+
+async def describe_from_url(muc: str, image_url: str) -> str:
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(image_url) as response:
+                content_type = response.headers.get('content-type', 'image/jpeg')  # fallback to jpeg if not found
+                if content_type not in acceptable_formats:
+                    return ""
+
+                image_content = await response.read()
+    except Exception as e:
+        print(e)
+        return f"Error while attempting to fetch {image_url}\n{str(e)}"
+
+    return await describe_from_bytes(muc, image_content, content_type)
 
 
 async def respond_text(muc: str, body: str) -> str:
@@ -180,95 +185,95 @@ class MUCBot(slixmpp.ClientXMPP):
 
     async def muc_message(self, msg):
         # dont respond to self
-        if msg['mucnick'] != self.nick:
+        if msg['mucnick'] == self.nick:
+            return
 
-            # chat response
-            if msg["body"].lower().startswith(self.nick.lower()):
-                r = await respond_text(msg["from"].bare, msg["body"])
-                if r == "":
-                    r = "The llm refused to respond"
+        # chat response
+        if msg["body"].lower().startswith(self.nick.lower()):
+            r = await respond_text(msg["from"].bare, msg["body"])
+            if r == "":
+                r = "The llm refused to respond"
 
-                if len(r) > 315:
-                    # html encode and then convert to bytes
-                    html = md.render(r)
-                    r_bytes = html.encode("utf-16")
+            if len(r) > 315:
+                # html encode and then convert to bytes
+                html = md.render(r)
+                r_bytes = html.encode("utf-16")
 
-                    # upload
-                    try:
-                        url = await self['xep_0363'].upload_file(
-                            filename="o.html",
-                            # domain=self.domain,
-                            timeout=10,
-                            input_file=r_bytes,
-                            size=len(r_bytes),
-                            content_type="text/html",
-                        )
-                    except Exception as e:
-                        url = str(e)
+                # upload
+                try:
+                    url = await self['xep_0363'].upload_file(
+                        filename="o.html",
+                        # domain=self.domain,
+                        timeout=10,
+                        input_file=r_bytes,
+                        size=len(r_bytes),
+                        content_type="text/html",
+                    )
+                except Exception as e:
+                    url = str(e)
 
-                    print(url)
+                print(url)
 
-                    r = r[:300] + " { truncated } \n" + url
+                r = r[:300] + " { truncated } \n" + url
 
-                # format quote
-                rf = f"{msg['from'].resource}\n> {'> '.join(msg['body'].splitlines())}\n{r}"
+            # format quote
+            rf = f"{msg['from'].resource}\n> {'> '.join(msg['body'].splitlines())}\n{r}"
 
-                self.send_message(
+            self.send_message(
+                mto=msg['from'].bare,
+                mbody=rf,
+                mtype='groupchat'
+            )
+
+        elif msg["body"].lower().startswith(login["nanogpt-image-model"]):
+            image_generated = False
+            async for img_bytes in generate_image(
+                    msg["from"],
+                    msg["body"][len(login["nanogpt-image-model"]) + 1:]
+            ):
+                image_generated = True
+
+                # upload
+                try:
+                    url = await self['xep_0363'].upload_file(
+                        filename="generated.jpeg",
+                        # domain=self.domain,
+                        timeout=10,
+                        input_file=img_bytes,
+                        size=len(img_bytes),
+                        content_type="image/jpeg",
+                    )
+                except Exception as e:
+                    url = str(e)
+
+                print(url)
+
+                # boilerplate message obj
+                message = self.make_message(
                     mto=msg['from'].bare,
-                    mbody=rf,
+                    mbody=url,
                     mtype='groupchat'
                 )
 
-            elif msg["body"].lower().startswith(login["nanogpt-image-model"]):
-                # dont respond to self
-                if msg['mucnick'] == self.nick:
-                    return
+                # attach media tag
+                message['oob']['url'] = url
+                message.send()
 
-                image_generated = False
-                async for img_bytes in generate_image(
-                        msg["from"],
-                        msg["body"][len(login["nanogpt-image-model"]) + 1:]
-                ):
-                    image_generated = True
-
-                    temp_path = f'/tmp/generated_{msg["from"].bare}_{int(time.time())}.jpeg'
-                    async with aiofiles.open(temp_path, 'wb') as f:
-                        await f.write(img_bytes)
-
-                    # upload
-                    try:
-                        url = await self['xep_0363'].upload_file(
-                            filename="generated.jpeg",
-                            # domain=self.domain,
-                            timeout=10,
-                            input_file=img_bytes,
-                            size=len(img_bytes),
-                            content_type="image/jpeg",
-                        )
-                    except Exception as e:
-                        url = str(e)
-
-                    print(url)
-
-                    # boilerplate message obj
-                    message = self.make_message(
-                        mto=msg['from'].bare,
-                        mbody=url,
-                        mtype='groupchat'
-                    )
-
-                    # attach media tag
-                    message['oob']['url'] = url
-                    message.send()
-
-                    os.remove(temp_path)
-
-                if not image_generated:
+                desc = await describe_from_bytes(msg['from'].bare, img_bytes, "image/jpeg")
+                if desc != "":
+                    rf = f"> {url}\n\n{desc}"
                     self.send_message(
                         mto=msg['from'].bare,
-                        mbody=f"Failed to generate any images for prompt {msg['body']}",
+                        mbody=rf,
                         mtype='groupchat'
                     )
+
+            if not image_generated:
+                self.send_message(
+                    mto=msg['from'].bare,
+                    mbody=f"Failed to generate any images for prompt {msg['body']}",
+                    mtype='groupchat'
+                )
 
         urls_found = []
         for line in msg["body"].splitlines():
