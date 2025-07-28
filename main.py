@@ -180,96 +180,95 @@ class MUCBot(slixmpp.ClientXMPP):
 
     async def muc_message(self, msg):
         # dont respond to self
-        if msg['mucnick'] == self.nick:
-            return
+        if msg['mucnick'] != self.nick:
 
-        # chat response
-        if msg["body"].lower().startswith(self.nick.lower()):
-            r = await respond_text(msg["from"].bare, msg["body"])
-            if r == "":
-                r = "The llm refused to respond"
+            # chat response
+            if msg["body"].lower().startswith(self.nick.lower()):
+                r = await respond_text(msg["from"].bare, msg["body"])
+                if r == "":
+                    r = "The llm refused to respond"
 
-            if len(r) > 315:
-                # html encode and then convert to bytes
-                html = md.render(r)
-                r_bytes = html.encode("utf-16")
+                if len(r) > 315:
+                    # html encode and then convert to bytes
+                    html = md.render(r)
+                    r_bytes = html.encode("utf-16")
 
-                # upload
-                try:
-                    url = await self['xep_0363'].upload_file(
-                        filename="o.html",
-                        # domain=self.domain,
-                        timeout=10,
-                        input_file=r_bytes,
-                        size=len(r_bytes),
-                        content_type="text/html",
-                    )
-                except Exception as e:
-                    url = str(e)
+                    # upload
+                    try:
+                        url = await self['xep_0363'].upload_file(
+                            filename="o.html",
+                            # domain=self.domain,
+                            timeout=10,
+                            input_file=r_bytes,
+                            size=len(r_bytes),
+                            content_type="text/html",
+                        )
+                    except Exception as e:
+                        url = str(e)
 
-                print(url)
+                    print(url)
 
-                r = r[:300] + " { truncated } \n" + url
+                    r = r[:300] + " { truncated } \n" + url
 
-            # format quote
-            rf = f"{msg['from'].resource}\n> {'> '.join(msg['body'].splitlines())}\n{r}"
+                # format quote
+                rf = f"{msg['from'].resource}\n> {'> '.join(msg['body'].splitlines())}\n{r}"
 
-            self.send_message(
-                mto=msg['from'].bare,
-                mbody=rf,
-                mtype='groupchat'
-            )
-
-        elif msg["body"].lower().startswith(login["nanogpt-image-model"]):
-            # dont respond to self
-            if msg['mucnick'] == self.nick:
-                return
-
-            image_generated = False
-            async for img_bytes in generate_image(
-                    msg["from"],
-                    msg["body"][len(login["nanogpt-image-model"]) + 1:]
-            ):
-                image_generated = True
-
-                temp_path = f'/tmp/generated_{msg["from"].bare}_{int(time.time())}.jpeg'
-                async with aiofiles.open(temp_path, 'wb') as f:
-                    await f.write(img_bytes)
-
-                # upload
-                try:
-                    url = await self['xep_0363'].upload_file(
-                        filename="generated.jpeg",
-                        # domain=self.domain,
-                        timeout=10,
-                        input_file=img_bytes,
-                        size=len(img_bytes),
-                        content_type="image/jpeg",
-                    )
-                except Exception as e:
-                    url = str(e)
-
-                print(url)
-
-                # boilerplate message obj
-                message = self.make_message(
-                    mto=msg['from'].bare,
-                    mbody=url,
-                    mtype='groupchat'
-                )
-
-                # attach media tag
-                message['oob']['url'] = url
-                message.send()
-
-                os.remove(temp_path)
-
-            if not image_generated:
                 self.send_message(
                     mto=msg['from'].bare,
-                    mbody=f"Failed to generate any images for prompt {msg['body']}",
+                    mbody=rf,
                     mtype='groupchat'
                 )
+
+            elif msg["body"].lower().startswith(login["nanogpt-image-model"]):
+                # dont respond to self
+                if msg['mucnick'] == self.nick:
+                    return
+
+                image_generated = False
+                async for img_bytes in generate_image(
+                        msg["from"],
+                        msg["body"][len(login["nanogpt-image-model"]) + 1:]
+                ):
+                    image_generated = True
+
+                    temp_path = f'/tmp/generated_{msg["from"].bare}_{int(time.time())}.jpeg'
+                    async with aiofiles.open(temp_path, 'wb') as f:
+                        await f.write(img_bytes)
+
+                    # upload
+                    try:
+                        url = await self['xep_0363'].upload_file(
+                            filename="generated.jpeg",
+                            # domain=self.domain,
+                            timeout=10,
+                            input_file=img_bytes,
+                            size=len(img_bytes),
+                            content_type="image/jpeg",
+                        )
+                    except Exception as e:
+                        url = str(e)
+
+                    print(url)
+
+                    # boilerplate message obj
+                    message = self.make_message(
+                        mto=msg['from'].bare,
+                        mbody=url,
+                        mtype='groupchat'
+                    )
+
+                    # attach media tag
+                    message['oob']['url'] = url
+                    message.send()
+
+                    os.remove(temp_path)
+
+                if not image_generated:
+                    self.send_message(
+                        mto=msg['from'].bare,
+                        mbody=f"Failed to generate any images for prompt {msg['body']}",
+                        mtype='groupchat'
+                    )
 
         urls_found = []
         for line in msg["body"].splitlines():
