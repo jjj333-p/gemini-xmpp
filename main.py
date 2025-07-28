@@ -307,4 +307,5 @@ if __name__ == '__main__':
 
     # Connect to the XMPP server and start processing XMPP stanzas.
     xmpp.connect()
+    print("Connected and running forever...")
     asyncio.get_event_loop().run_forever()
