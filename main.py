@@ -46,7 +46,9 @@ url_pattern = r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-
 with open("./login.json") as lf:
     login = json.load(lf)
 
-client = genai.Client(api_key=login["gemini-api"])
+max_file_len: int = int(login.get("max_file_len", 10)) * 1024 * 1024  # 5MB max file size
+
+client = genai.Client(api_key=login.get("gemini-api", ""))
 
 chats = {}
 
@@ -77,12 +79,16 @@ async def describe_from_bytes(muc: str, image_content: bytes, content_type: str)
 
 
 async def describe_from_url(muc: str, image_url: str) -> str:
+    print("trying to describe from url", image_url)
     try:
         async with aiohttp.ClientSession() as session:
             async with session.get(image_url) as response:
                 content_type = response.headers.get('content-type', 'image/jpeg')  # fallback to jpeg if not found
                 if content_type not in acceptable_formats:
                     return ""
+                content_length = int(response.headers.get('content-length', '0'))
+                if content_length > max_file_len:
+                    return f"File too large ({content_length} bytes > {max_file_len} bytes)"
 
                 image_content = await response.read()
     except Exception as e:

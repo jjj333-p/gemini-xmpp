@@ -41,6 +41,12 @@ The model name to use for NanoGPT image generation
 Width and height settings for generated images (in pixels)
 
 ```
+    "max_file_len": 10
+```
+
+Maximum file size (in megabytes) of the images to download and send to the gemini api
+
+```
     "jid": "gemini@pain.agency",
 ```
 
