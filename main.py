@@ -46,7 +46,7 @@ url_pattern = r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-
 with open("./login.json") as lf:
     login = json.load(lf)
 
-max_file_len: int = int(login.get("max_file_len", 10)) * 1024 * 1024  # 5MB max file size
+max_file_len: int = int(login.get("max_file_len", 10)) * 1024 * 1024  # 10MB max file size
 
 client = genai.Client(api_key=login.get("gemini-api", ""))
 
