@@ -183,6 +183,7 @@ class MUCBot(slixmpp.ClientXMPP):
         self.register_plugin('xep_0461')  # Message Replies
         self.register_plugin('xep_0363')  # HTTP file upload
         self.register_plugin('xep_0066')  # SIMS
+        self.register_plugin('xep_0359')  # (Unique and Stable Stanza IDs)
 
     async def start(self, event):
         await self.get_roster()
@@ -226,13 +227,17 @@ class MUCBot(slixmpp.ClientXMPP):
                 r = r[:300] + " { truncated } \n" + url
 
             # format quote
-            rf = f"{msg['from'].resource}\n> {'> '.join(msg['body'].splitlines())}\n{r}"
+            rf = f"{msg['from'].resource}\n> {'> '.join(msg['body'].splitlines())}\n"
 
-            self.send_message(
+            message: slixmpp.stanza.Message = self['xep_0461'].make_reply(
+                msg['from'],
+                msg['stanza_id']['id'],
+                rf,
                 mto=msg['from'].bare,
-                mbody=rf,
+                mbody=r,
                 mtype='groupchat'
             )
+            message.send()
 
         elif msg["body"].lower().startswith(login["nanogpt-image-model"]):
             image_generated = False
@@ -278,11 +283,16 @@ class MUCBot(slixmpp.ClientXMPP):
                     )
 
             if not image_generated:
-                self.send_message(
+                parse_body = msg['body'].split('\n').join('\n> ')
+                message: slixmpp.stanza.Message = self['xep_0461'].make_reply(
+                    msg['from'],
+                    msg['stanza_id']['id'],
+                    f"> {parse_body}",
                     mto=msg['from'].bare,
                     mbody=f"Failed to generate any images for prompt {msg['body']}",
                     mtype='groupchat'
                 )
+                message.send()
 
         urls_found = []
         for line in msg["body"].splitlines():
@@ -298,12 +308,16 @@ class MUCBot(slixmpp.ClientXMPP):
                 # generate description
                 desc = await describe_from_url(msg['from'].bare, url)
                 if desc != "":
-                    rf = f"> {url}\n\n{desc}"
-                    self.send_message(
+                    rf = f"> {url}\n\n"
+                    message: slixmpp.stanza.Message = self['xep_0461'].make_reply(
+                        msg['from'],
+                        msg['stanza_id']['id'],
+                        rf,
                         mto=msg['from'].bare,
-                        mbody=rf,
+                        mbody=desc,
                         mtype='groupchat'
                     )
+                    message.send()
 
     def muc_online(self, presence):
         pass
