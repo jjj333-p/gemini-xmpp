@@ -46,7 +46,12 @@ url_pattern = r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-
 with open("./login.json") as lf:
     login = json.load(lf)
 
+<<<<<<< HEAD
 max_file_len: int = int(login.get("max_file_len", 10)) * 1024 * 1024  # 10MB max file size
+=======
+max_file_len: int = int(login.get("max_file_len", 10)) * \
+    1024 * 1024  # 5MB max file size
+>>>>>>> 14bac74 (move gemini model definition to login.json)
 
 client = genai.Client(api_key=login.get("gemini-api", ""))
 
@@ -56,7 +61,7 @@ chats = {}
 async def describe_from_bytes(muc: str, image_content: bytes, content_type: str) -> str:
     chat = chats.get(muc)
     if chat is None:
-        chat = client.chats.create(model="gemini-2.0-flash")
+        chat = client.chats.create(model=login['gemini-model'])
         chats[muc] = chat
 
     try:
@@ -83,10 +88,12 @@ async def describe_from_url(muc: str, image_url: str) -> str:
     try:
         async with aiohttp.ClientSession() as session:
             async with session.get(image_url) as response:
-                content_type = response.headers.get('content-type', 'image/jpeg')  # fallback to jpeg if not found
+                content_type = response.headers.get(
+                    'content-type', 'image/jpeg')  # fallback to jpeg if not found
                 if content_type not in acceptable_formats:
                     return ""
-                content_length = int(response.headers.get('content-length', '0'))
+                content_length = int(
+                    response.headers.get('content-length', '0'))
                 if content_length > max_file_len:
                     return f"File too large ({content_length} bytes > {max_file_len} bytes)"
 
@@ -113,7 +120,7 @@ See my source code at https://github.com/jjj333-p/gemini-xmpp
     # handles context
     chat = chats.get(muc)
     if chat is None:
-        chat = client.chats.create(model="gemini-2.0-flash")
+        chat = client.chats.create(model=login['gemini-model'])
         chats[muc] = chat
 
     try:
@@ -131,7 +138,7 @@ async def generate_image(muc: str, prompt: str) -> AsyncGenerator[bytes, None]:
     try:
         async with aiohttp.ClientSession() as session:
             async with session.post(
-                    f"https://nano-gpt.com/api/generate-image",
+                    "https://nano-gpt.com/api/generate-image",
                     headers=headers,
                     json={
                         "model": login["nanogpt-image-model"],
@@ -309,7 +316,8 @@ class MUCBot(slixmpp.ClientXMPP):
 
 
 if __name__ == '__main__':
-    xmpp = MUCBot(login["jid"], login["password"], login["rooms"], login["displayname"])
+    xmpp = MUCBot(login["jid"], login["password"],
+                  login["rooms"], login["displayname"])
 
     # Connect to the XMPP server and start processing XMPP stanzas.
     xmpp.connect()
