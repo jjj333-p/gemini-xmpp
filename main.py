@@ -43,7 +43,7 @@ acceptable_formats: list[str] = [
 
 url_pattern = r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+'
 
-with open("./login.json") as lf:
+with open("./login.json", encoding="utf-8") as lf:
     login = json.load(lf)
 
 max_file_len: int = int(login.get("max_file_len", 10)) * \
@@ -126,7 +126,7 @@ See my source code at https://github.com/jjj333-p/gemini-xmpp
     return response.text
 
 
-async def generate_image(muc: str, prompt: str) -> AsyncGenerator[bytes, None]:
+async def generate_image(prompt: str) -> AsyncGenerator[bytes, None]:
     print(f"Generating image \"{prompt}\"")
 
     headers = {"x-api-key": login["nanogpt-api"]}
@@ -185,7 +185,7 @@ class MUCBot(slixmpp.ClientXMPP):
         self.register_plugin('xep_0066')  # SIMS
         self.register_plugin('xep_0359')  # (Unique and Stable Stanza IDs)
 
-    async def start(self, event):
+    async def start(self, _):
         await self.get_roster()
         self.send_presence()
 
@@ -242,7 +242,6 @@ class MUCBot(slixmpp.ClientXMPP):
         elif msg["body"].lower().startswith(login["nanogpt-image-model"]):
             image_generated = False
             async for img_bytes in generate_image(
-                    msg["from"],
                     msg["body"][len(login["nanogpt-image-model"]) + 1:]
             ):
                 image_generated = True
@@ -270,6 +269,7 @@ class MUCBot(slixmpp.ClientXMPP):
                 )
 
                 # attach media tag
+                # pylint: disable=invalid-sequence-index
                 message['oob']['url'] = url
                 message.send()
 
