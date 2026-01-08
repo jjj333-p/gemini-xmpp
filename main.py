@@ -105,7 +105,7 @@ async def respond_text(muc: str, body: str) -> str:
     key_body: str = body[len(login["displayname"]) + 2:]
     if key_body.startswith("forget"):
         if chats.get(muc) is not None:
-            del (chats[muc])
+            del chats[muc]
         return "Drinking to forget! 🍻"
     elif key_body.startswith("help"):
         return """
@@ -227,7 +227,7 @@ class MUCBot(slixmpp.ClientXMPP):
                 r = r[:300] + " { truncated } \n" + url
 
             # format quote
-            rf = f"{msg['from'].resource}\n> {'> '.join(msg['body'].splitlines())}\n"
+            rf = f"{msg['from'].resource}\n> {'> '.join(msg['body'].splitlines())}"
 
             message: slixmpp.stanza.Message = self['xep_0461'].make_reply(
                 msg['from'],
@@ -275,7 +275,7 @@ class MUCBot(slixmpp.ClientXMPP):
 
                 desc = await describe_from_bytes(msg['from'].bare, img_bytes, "image/jpeg")
                 if desc != "":
-                    rf = f"> {url}\n\n{desc}"
+                    rf = f"> {url}\n{desc}"
                     self.send_message(
                         mto=msg['from'].bare,
                         mbody=rf,
@@ -308,11 +308,10 @@ class MUCBot(slixmpp.ClientXMPP):
                 # generate description
                 desc = await describe_from_url(msg['from'].bare, url)
                 if desc != "":
-                    rf = f"> {url}\n\n"
                     message: slixmpp.stanza.Message = self['xep_0461'].make_reply(
                         msg['from'],
                         msg['stanza_id']['id'],
-                        rf,
+                        url,
                         mto=msg['from'].bare,
                         mbody=desc,
                         mtype='groupchat'
