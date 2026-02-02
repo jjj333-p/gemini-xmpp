@@ -47,7 +47,7 @@ with open("./login.json", encoding="utf-8") as lf:
     login = json.load(lf)
 
 max_file_len: int = int(login.get("max_file_len", 10)) * \
-    1024 * 1024  # 5MB max file size
+                    1024 * 1024  # 5MB max file size
 
 client = genai.Client(api_key=login.get("gemini-api", ""))
 
@@ -191,7 +191,7 @@ class MUCBot(slixmpp.ClientXMPP):
 
         # join configured rooms
         for room in self.rooms:
-            self.plugin['xep_0045'].join_muc(room, self.nick)
+            await self.plugin['xep_0045'].join_muc(room, self.nick)
 
     async def muc_message(self, msg):
         # dont respond to self
