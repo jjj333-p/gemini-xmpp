@@ -74,8 +74,6 @@ async def describe_from_bytes(muc: str, image_content: bytes, content_type: str)
         print(e)
         return str(e)
 
-    print(response)
-
     return response.text
 
 
