@@ -49,6 +49,8 @@ with open("./login.json", encoding="utf-8") as lf:
 max_file_len: int = int(login.get("max_file_len", 10)) * \
                     1024 * 1024  # 5MB max file size
 
+pinnwand_url: str = login.get("pinnwand_url", "https://pussybin.com")
+
 client = genai.Client(api_key=login.get("gemini-api", ""))
 
 chats = {}
@@ -60,41 +62,36 @@ async def describe_from_bytes(muc: str, image_content: bytes, content_type: str)
         chat = client.chats.create(model=login['gemini-model'])
         chats[muc] = chat
 
-    try:
-        response = chat.send_message(
-            [
-                types.Part.from_bytes(
-                    data=image_content,
-                    mime_type=content_type,
-                ),
-                'Describe this image with as much detail as possible in 1 to 2 sentences'
-            ]
-        )
-    except Exception as e:
-        print(e)
-        return str(e)
+    response = chat.send_message(
+        [
+            types.Part.from_bytes(
+                data=image_content,
+                mime_type=content_type,
+            ),
+            'Describe this image with as much detail as possible in 1 to 2 sentences'
+        ]
+    )
 
-    return response.text
+    print(response)
+
+    return response.text or ""
 
 
 async def describe_from_url(muc: str, image_url: str) -> str:
     print("trying to describe from url", image_url)
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(image_url) as response:
-                content_type = response.headers.get(
-                    'content-type', 'image/jpeg')  # fallback to jpeg if not found
-                if content_type not in acceptable_formats:
-                    return ""
-                content_length = int(
-                    response.headers.get('content-length', '0'))
-                if content_length > max_file_len:
-                    return f"File too large ({content_length} bytes > {max_file_len} bytes)"
 
-                image_content = await response.read()
-    except Exception as e:
-        print(e)
-        return f"Error while attempting to fetch {image_url}\n{str(e)}"
+    async with aiohttp.ClientSession() as session:
+        async with session.get(image_url) as response:
+            content_type = response.headers.get(
+                'content-type', 'image/jpeg')  # fallback to jpeg if not found
+            if content_type not in acceptable_formats:
+                return ""
+            content_length = int(
+                response.headers.get('content-length', '0'))
+            if content_length > max_file_len:
+                return f"File too large ({content_length} bytes > {max_file_len} bytes)"
+
+            image_content = await response.read()
 
     return await describe_from_bytes(muc, image_content, content_type)
 
@@ -122,6 +119,29 @@ See my source code at https://github.com/jjj333-p/gemini-xmpp
     except Exception as e:
         return str(e)
     return response.text
+
+
+async def post_to_pinnwand(content: str) -> str:
+    """Post markdown content to pinnwand instance with 1 week expiry."""
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                    f"{pinnwand_url}/api/v1/paste",
+                    json={
+                        "expiry": "1 week",
+                        "files": [
+                            {
+                                "lexer": "markdown",
+                                "content": content
+                            }
+                        ]
+                    }
+            ) as response:
+                result = await response.json()
+                print(result)
+                return result.get("link", "")
+    except Exception as e:
+        return str(e)
 
 
 async def generate_image(prompt: str) -> AsyncGenerator[bytes, None]:
@@ -182,6 +202,7 @@ class MUCBot(slixmpp.ClientXMPP):
         self.register_plugin('xep_0363')  # HTTP file upload
         self.register_plugin('xep_0066')  # SIMS
         self.register_plugin('xep_0359')  # (Unique and Stable Stanza IDs)
+        self.register_plugin('xep_0444')  # Message Reactions
 
     async def start(self, _):
         await self.get_roster()
@@ -203,22 +224,8 @@ class MUCBot(slixmpp.ClientXMPP):
                 r = "The llm refused to respond"
 
             if len(r) > 315:
-                # html encode and then convert to bytes
-                html = md.render(r)
-                r_bytes = html.encode("utf-16")
-
-                # upload
-                try:
-                    url = await self['xep_0363'].upload_file(
-                        filename="o.html",
-                        # domain=self.domain,
-                        timeout=10,
-                        input_file=r_bytes,
-                        size=len(r_bytes),
-                        content_type="text/html",
-                    )
-                except Exception as e:
-                    url = str(e)
+                # post to pinnwand
+                url = await post_to_pinnwand(r)
 
                 print(url)
 
@@ -304,7 +311,21 @@ class MUCBot(slixmpp.ClientXMPP):
                 urls_found.append(url)
 
                 # generate description
-                desc = await describe_from_url(msg['from'].bare, url)
+                try:
+                    desc = await describe_from_url(msg['from'].bare, url)
+                except Exception as e:
+                    reaction_msg = self.make_message(
+                        mto=msg['from'].bare,
+                        mtype='groupchat'
+                    )
+                    self.plugin['xep_0444'].set_reactions(
+                        reaction_msg,
+                        msg['stanza_id']['id'],
+                        '🤷'
+                    )
+                    reaction_msg.send()
+                    continue
+
                 if desc != "":
                     message: slixmpp.stanza.Message = self['xep_0461'].make_reply(
                         msg['from'],
