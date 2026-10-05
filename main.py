@@ -55,6 +55,8 @@ client = genai.Client(api_key=login.get("gemini-api", ""))
 
 chats = {}
 
+chat_lock: dict[str, asyncio.Lock] = {}
+
 
 async def describe_from_bytes(muc: str, image_content: bytes, content_type: str) -> str:
     chat = chats.get(muc)
@@ -62,7 +64,8 @@ async def describe_from_bytes(muc: str, image_content: bytes, content_type: str)
         chat = client.chats.create(model=login['gemini-model'])
         chats[muc] = chat
 
-    response = chat.send_message(
+    response = await asyncio.to_thread(
+        chat.send_message,
         [
             types.Part.from_bytes(
                 data=image_content,
@@ -70,7 +73,7 @@ async def describe_from_bytes(muc: str, image_content: bytes, content_type: str)
             ),
             'Describe this image with as much detail as possible in 1 to 2 sentences'
         ]
-    )
+    ),
 
     print(response)
 
@@ -115,7 +118,7 @@ See my source code at https://github.com/jjj333-p/gemini-xmpp
         chats[muc] = chat
 
     try:
-        response = chat.send_message(body)
+        response = await asyncio.to_thread(chat.send_message, body)
     except Exception as e:
         return str(e)
     return response.text
@@ -200,7 +203,7 @@ class MUCBot(slixmpp.ClientXMPP):
         self.register_plugin('xep_0199')  # XMPP Ping
         self.register_plugin('xep_0461')  # Message Replies
         self.register_plugin('xep_0363')  # HTTP file upload
-        self.register_plugin('xep_0066')  # SIMS
+        self.register_plugin('xep_0066')  # OOB file embed
         self.register_plugin('xep_0359')  # (Unique and Stable Stanza IDs)
         self.register_plugin('xep_0444')  # Message Reactions
 
@@ -217,125 +220,132 @@ class MUCBot(slixmpp.ClientXMPP):
         if msg['mucnick'] == self.nick:
             return
 
-        # chat response
-        if msg["body"].lower().startswith(self.nick.lower()):
-            r = await respond_text(msg["from"].bare, msg["body"])
-            if r == "":
-                r = "The llm refused to respond"
+        lock: asyncio.Lock | None = chat_lock.get(msg['from'].bare)
+        if lock is None:
+            lock: asyncio.Lock = asyncio.Lock()
+            chat_lock[msg['from'].bare] = lock
 
-            if len(r) > 315:
-                # post to pinnwand
-                url = await post_to_pinnwand(r)
+        async with lock:
 
-                print(url)
+            # chat response
+            if msg["body"].lower().startswith(self.nick.lower()):
+                r = await respond_text(msg["from"].bare, msg["body"])
+                if r == "":
+                    r = "The llm refused to respond"
 
-                r = r[:300] + " { truncated } \n" + url
+                if len(r) > 315:
+                    # post to pinnwand
+                    url = await post_to_pinnwand(r)
 
-            # format quote
-            rf = f"{msg['from'].resource}\n> {'> '.join(msg['body'].splitlines())}"
+                    print(url)
 
-            message: slixmpp.stanza.Message = self['xep_0461'].make_reply(
-                msg['from'],
-                msg['stanza_id']['id'],
-                rf,
-                mto=msg['from'].bare,
-                mbody=r,
-                mtype='groupchat'
-            )
-            message.send()
+                    r = r[:300] + " { truncated } \n" + url
 
-        elif msg["body"].lower().startswith(login["nanogpt-image-model"]):
-            image_generated = False
-            async for img_bytes in generate_image(
-                    msg["body"][len(login["nanogpt-image-model"]) + 1:]
-            ):
-                image_generated = True
+                # format quote
+                rf = f"{msg['from'].resource}\n> {'> '.join(msg['body'].splitlines())}"
 
-                # upload
-                try:
-                    url = await self['xep_0363'].upload_file(
-                        filename="generated.jpeg",
-                        # domain=self.domain,
-                        timeout=10,
-                        input_file=img_bytes,
-                        size=len(img_bytes),
-                        content_type="image/jpeg",
-                    )
-                except Exception as e:
-                    url = str(e)
-
-                print(url)
-
-                # boilerplate message obj
-                message = self.make_message(
-                    mto=msg['from'].bare,
-                    mbody=url,
-                    mtype='groupchat'
-                )
-
-                # attach media tag
-                # pylint: disable=invalid-sequence-index
-                message['oob']['url'] = url
-                message.send()
-
-                desc = await describe_from_bytes(msg['from'].bare, img_bytes, "image/jpeg")
-                if desc != "":
-                    rf = f"> {url}\n{desc}"
-                    self.send_message(
-                        mto=msg['from'].bare,
-                        mbody=rf,
-                        mtype='groupchat'
-                    )
-
-            if not image_generated:
-                parse_body = msg['body'].split('\n').join('\n> ')
                 message: slixmpp.stanza.Message = self['xep_0461'].make_reply(
                     msg['from'],
                     msg['stanza_id']['id'],
-                    f"> {parse_body}",
+                    rf,
                     mto=msg['from'].bare,
-                    mbody=f"Failed to generate any images for prompt {msg['body']}",
+                    mbody=r,
                     mtype='groupchat'
                 )
                 message.send()
 
-        urls_found = []
-        for line in msg["body"].splitlines():
-            # filter out replies
-            if line.startswith(">"):
-                continue
-            for url in re.findall(url_pattern, line):
-                # dont parse a url several times
-                if url in urls_found:
-                    continue
-                urls_found.append(url)
+            elif msg["body"].lower().startswith(login["nanogpt-image-model"]):
+                image_generated = False
+                async for img_bytes in generate_image(
+                        msg["body"][len(login["nanogpt-image-model"]) + 1:]
+                ):
+                    image_generated = True
 
-                # generate description
-                try:
-                    desc = await describe_from_url(msg['from'].bare, url)
-                except Exception as e:
-                    reaction_msg = self.make_message(
+                    # upload
+                    try:
+                        url = await self['xep_0363'].upload_file(
+                            filename="generated.jpeg",
+                            # domain=self.domain,
+                            timeout=10,
+                            input_file=img_bytes,
+                            size=len(img_bytes),
+                            content_type="image/jpeg",
+                        )
+                    except Exception as e:
+                        url = str(e)
+
+                    print(url)
+
+                    # boilerplate message obj
+                    message = self.make_message(
                         mto=msg['from'].bare,
+                        mbody=url,
                         mtype='groupchat'
                     )
-                    self.plugin['xep_0444'].set_reactions(
-                        reaction_msg,
-                        msg['stanza_id']['id'],
-                        '🤷'
-                    )
-                    reaction_msg.send()
-                    continue
 
-                if desc != "":
+                    # attach media tag
+                    # pylint: disable=invalid-sequence-index
+                    message['oob']['url'] = url
+                    message.send()
+
+                    desc = await describe_from_bytes(msg['from'].bare, img_bytes, "image/jpeg")
+                    if desc != "":
+                        rf = f"> {url}\n{desc}"
+                        self.send_message(
+                            mto=msg['from'].bare,
+                            mbody=rf,
+                            mtype='groupchat'
+                        )
+
+                if not image_generated:
+                    parse_body = msg['body'].split('\n').join('\n> ')
                     message: slixmpp.stanza.Message = self['xep_0461'].make_reply(
                         msg['from'],
                         msg['stanza_id']['id'],
-                        url,
+                        f"> {parse_body}",
                         mto=msg['from'].bare,
-                        mbody=desc,
+                        mbody=f"Failed to generate any images for prompt {msg['body']}",
                         mtype='groupchat'
                     )
                     message.send()
+
+            urls_found = []
+            for line in msg["body"].splitlines():
+                # filter out replies
+                if line.startswith(">"):
+                    continue
+                for url in re.findall(url_pattern, line):
+                    # dont parse a url several times
+                    if url in urls_found:
+                        continue
+                    urls_found.append(url)
+
+                    # generate description
+                    try:
+                        desc = await describe_from_url(msg['from'].bare, url)
+                    except Exception as e:
+                        reaction_msg = self.make_message(
+                            mto=msg['from'].bare,
+                            mtype='groupchat'
+                        )
+                        self.plugin['xep_0444'].set_reactions(
+                            reaction_msg,
+                            msg['stanza_id']['id'],
+                            '🤷'
+                        )
+                        reaction_msg.send()
+                        continue
+
+                    if desc != "":
+                        message: slixmpp.stanza.Message = self['xep_0461'].make_reply(
+                            msg['from'],
+                            msg['stanza_id']['id'],
+                            url,
+                            mto=msg['from'].bare,
+                            mbody=desc,
+                            mtype='groupchat'
+                        )
+                        message.send()
 
     def muc_online(self, presence):
         pass
