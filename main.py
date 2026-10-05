@@ -16,19 +16,6 @@ from google import genai
 from google.genai import types
 from markdown_it import MarkdownIt
 
-# class HighlightRenderer(RendererHTML):
-#     def render_token(self, tokens, idx, options, env):
-#         token = tokens[idx]
-#         if token.type == "fence" and token.info:
-#             try:
-#                 lexer = get_lexer_by_name(token.info.strip())
-#                 formatter = HtmlFormatter()
-#                 return highlight(token.content, lexer, formatter)
-#             except Exception:
-#                 pass
-#         return super().render_token(tokens, idx, options, env)
-
-
 md = MarkdownIt()  # (renderer_cls=HighlightRenderer)
 
 # formats compat with gemini image comprehension
