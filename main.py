@@ -75,7 +75,7 @@ async def describe_from_bytes(muc: str, image_content: bytes, content_type: str)
         ]
     ),
 
-    return response.text or ""
+    return "\n".join(part.text for part in response)
 
 
 async def describe_from_url(muc: str, image_url: str) -> str:
@@ -322,6 +322,7 @@ class MUCBot(slixmpp.ClientXMPP):
                     try:
                         desc = await describe_from_url(msg['from'].bare, url)
                     except Exception as e:
+                        print(e)
                         reaction_msg = self.make_message(
                             mto=msg['from'].bare,
                             mtype='groupchat'
