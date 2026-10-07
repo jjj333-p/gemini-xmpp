@@ -346,7 +346,7 @@ if __name__ == '__main__':
     xmpp = MUCBot(login["jid"], login["password"],
                   login["rooms"], login["displayname"])
 
-    aiohttp_session = aiohttp.ClientSession()
+    aiohttp_session = aiohttp.ClientSession(loop=asyncio.get_event_loop())
 
     # Connect to the XMPP server and start processing XMPP stanzas.
     xmpp.connect()
