@@ -44,6 +44,8 @@ chats = {}
 
 chat_lock: dict[str, asyncio.Lock] = {}
 
+aiohttp_session: aiohttp.ClientSession | None = None
+
 
 async def describe_from_bytes(muc: str, image_content: bytes, content_type: str) -> str:
     chat = chats.get(muc)
@@ -68,18 +70,21 @@ async def describe_from_bytes(muc: str, image_content: bytes, content_type: str)
 async def describe_from_url(muc: str, image_url: str) -> str:
     print("trying to describe from url", image_url)
 
-    async with aiohttp.ClientSession() as session:
-        async with session.get(image_url) as response:
-            content_type = response.headers.get(
-                'content-type', 'image/jpeg')  # fallback to jpeg if not found
-            if content_type not in acceptable_formats:
-                return ""
-            content_length = int(
-                response.headers.get('content-length', '0'))
-            if content_length > max_file_len:
-                return f"File too large ({content_length} bytes > {max_file_len} bytes)"
+    if aiohttp_session is None:
+        print("no aiohttp session")
+        return "no aiohttp session"
 
-            image_content = await response.read()
+    async with aiohttp_session.get(image_url) as response:
+        content_type = response.headers.get(
+            'content-type', 'image/jpeg')  # fallback to jpeg if not found
+        if content_type not in acceptable_formats:
+            return ""
+        content_length = int(
+            response.headers.get('content-length', '0'))
+        if content_length > max_file_len:
+            return f"File too large ({content_length} bytes > {max_file_len} bytes)"
+
+        image_content = await response.read()
 
     return await describe_from_bytes(muc, image_content, content_type)
 
@@ -112,22 +117,21 @@ See my source code at https://github.com/jjj333-p/gemini-xmpp
 async def post_to_pinnwand(content: str) -> str:
     """Post markdown content to pinnwand instance with 1 week expiry."""
     try:
-        async with aiohttp.ClientSession() as session:
-            async with session.post(
-                    f"{pinnwand_url}/api/v1/paste",
-                    json={
-                        "expiry": "1 week",
-                        "files": [
-                            {
-                                "lexer": "markdown",
-                                "content": content
-                            }
-                        ]
-                    }
-            ) as response:
-                result = await response.json()
-                print(result)
-                return result.get("link", "")
+        async with aiohttp_session.post(
+                f"{pinnwand_url}/api/v1/paste",
+                json={
+                    "expiry": "1 week",
+                    "files": [
+                        {
+                            "lexer": "markdown",
+                            "content": content
+                        }
+                    ]
+                }
+        ) as response:
+            result = await response.json()
+            print(result)
+            return result.get("link", "")
     except Exception as e:
         return str(e)
 
@@ -138,23 +142,22 @@ async def generate_image(prompt: str) -> AsyncGenerator[bytes, None]:
     headers = {"x-api-key": login["nanogpt-api"]}
 
     try:
-        async with aiohttp.ClientSession() as session:
-            async with session.post(
-                    "https://nano-gpt.com/api/generate-image",
-                    headers=headers,
-                    json={
-                        "model": login["nanogpt-image-model"],
-                        "prompt": prompt,
-                        "width": login["nanogpt-image-w"],
-                        "height": login["nanogpt-image-h"],
-                    }
-            ) as response:
-                result = await response.json()
-                for b64 in result.get("data", []):
-                    b64_data = b64.get("b64_json")
-                    if b64_data is None:
-                        continue
-                    yield base64.b64decode(b64_data)
+        async with aiohttp_session.post(
+                "https://nano-gpt.com/api/generate-image",
+                headers=headers,
+                json={
+                    "model": login["nanogpt-image-model"],
+                    "prompt": prompt,
+                    "width": login["nanogpt-image-w"],
+                    "height": login["nanogpt-image-h"],
+                }
+        ) as response:
+            result = await response.json()
+            for b64 in result.get("data", []):
+                b64_data = b64.get("b64_json")
+                if b64_data is None:
+                    continue
+                yield base64.b64decode(b64_data)
     except Exception as e:
         print(e)
 
@@ -342,6 +345,8 @@ class MUCBot(slixmpp.ClientXMPP):
 if __name__ == '__main__':
     xmpp = MUCBot(login["jid"], login["password"],
                   login["rooms"], login["displayname"])
+
+    aiohttp_session = aiohttp.ClientSession()
 
     # Connect to the XMPP server and start processing XMPP stanzas.
     xmpp.connect()
