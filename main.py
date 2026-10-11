@@ -217,9 +217,7 @@ class MUCBot(slixmpp.ClientXMPP):
 
             # chat response
             if msg["body"].lower().startswith(self.nick.lower()):
-                r = await respond_text(msg["from"].bare, msg["body"])
-                if r == "":
-                    r = "The llm refused to respond"
+                r = (await respond_text(msg["from"].bare, msg["body"])) or "The llm refused to respond"
 
                 if len(r) > 315:
                     # post to pinnwand
