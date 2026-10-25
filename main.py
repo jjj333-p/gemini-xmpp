@@ -8,6 +8,7 @@ import asyncio
 import base64
 import json
 import re
+from collections.abc import Iterable
 from typing import AsyncGenerator
 
 import aiohttp
@@ -47,7 +48,7 @@ chat_lock: dict[str, asyncio.Lock] = {}
 aiohttp_session: aiohttp.ClientSession | None = None
 
 
-async def describe_from_bytes(muc: str, image_content: bytes, content_type: str) -> str:
+async def describe_from_bytes(muc: str, image_content: bytes, content_type: str, msg_from: str = "<unknown>") -> str:
     chat = chats.get(muc)
     if chat is None:
         chat = client.chats.create(model=login['gemini-model'])
@@ -67,7 +68,7 @@ async def describe_from_bytes(muc: str, image_content: bytes, content_type: str)
     return "\n".join(part.text for part in response)
 
 
-async def describe_from_url(muc: str, image_url: str) -> str:
+async def describe_from_url(muc: str, image_url: str, msg_from: str = "<unknown>") -> str:
     print("trying to describe from url", image_url)
 
     if aiohttp_session is None:
@@ -86,10 +87,10 @@ async def describe_from_url(muc: str, image_url: str) -> str:
 
         image_content = await response.read()
 
-    return await describe_from_bytes(muc, image_content, content_type)
+    return await describe_from_bytes(muc, image_content, content_type, msg_from)
 
 
-async def respond_text(muc: str, body: str) -> str:
+async def respond_text(muc: str, body: str, msg_from: str = "<unknown>") -> str:
     key_body: str = body[len(login["displayname"]) + 2:]
     if key_body.startswith("forget"):
         if chats.get(muc) is not None:
@@ -108,7 +109,10 @@ See my source code at https://github.com/jjj333-p/gemini-xmpp
         chats[muc] = chat
 
     try:
-        response = await asyncio.to_thread(chat.send_message, body)
+        response = await asyncio.to_thread(
+            chat.send_message,
+            f"Message from {msg_from}:\n{body}"
+        )
     except Exception as e:
         return str(e)
     return response.text
@@ -134,6 +138,28 @@ async def post_to_pinnwand(content: str) -> str:
             return result.get("link", "")
     except Exception as e:
         return str(e)
+
+
+def remove_fallbacks(body: str, namespaces: Iterable[str | None], fallbacks: Iterable[str]) -> str:
+    # get out fallback ranges for features we support
+    ranges_to_remove = []
+    for fallback in fallbacks:
+        # slixmpp stanza interface should never return None, so all None objects are effectively ignored
+        if fallback["for"] in namespaces:
+            start = int(fallback["body"]["start"])
+            end = int(fallback["body"]["end"])
+            ranges_to_remove.append((start, end))
+    # Remove in reverse order so indices stay valid
+    ranges_to_remove.sort(reverse=True)
+    result = list(body)
+    for start, end in ranges_to_remove:
+        if end > len(result):
+            continue
+        if start < 0:
+            continue
+        del result[start:end]
+
+    return "".join(result).strip()
 
 
 async def generate_image(prompt: str) -> AsyncGenerator[bytes, None]:
@@ -213,11 +239,18 @@ class MUCBot(slixmpp.ClientXMPP):
             lock: asyncio.Lock = asyncio.Lock()
             chat_lock[msg['from'].bare] = lock
 
+        cleaned_body: str = remove_fallbacks(
+            msg["body"],
+            ("urn:xmpp:reply:0",),
+            msg['fallbacks']
+        ).lower()
+
         async with lock:
 
             # chat response
-            if msg["body"].lower().startswith(self.nick.lower()):
-                r = (await respond_text(msg["from"].bare, msg["body"])) or "The llm refused to respond"
+            if cleaned_body.startswith(self.nick.lower()):
+                r = (await respond_text(msg["from"].bare, msg["body"],
+                                        msg['from'].resource)) or "The llm refused to respond"
 
                 if len(r) > 315:
                     # post to pinnwand
@@ -230,7 +263,7 @@ class MUCBot(slixmpp.ClientXMPP):
                 # format quote
                 rf = f"{msg['from'].resource}\n> {'> '.join(msg['body'].splitlines())}"
 
-                message: slixmpp.stanza.Message = self['xep_0461'].make_reply(
+                message: slixmpp.stanza.Message = self.plugin['xep_0461'].make_reply(
                     msg['from'],
                     msg['stanza_id']['id'],
                     rf,
@@ -240,7 +273,7 @@ class MUCBot(slixmpp.ClientXMPP):
                 )
                 message.send()
 
-            elif msg["body"].lower().startswith(login["nanogpt-image-model"]):
+            elif cleaned_body.startswith(login["nanogpt-image-model"]):
                 image_generated = False
                 async for img_bytes in generate_image(
                         msg["body"][len(login["nanogpt-image-model"]) + 1:]
@@ -285,7 +318,7 @@ class MUCBot(slixmpp.ClientXMPP):
 
                 if not image_generated:
                     parse_body = msg['body'].split('\n').join('\n> ')
-                    message: slixmpp.stanza.Message = self['xep_0461'].make_reply(
+                    message: slixmpp.stanza.Message = self.plugin['xep_0461'].make_reply(
                         msg['from'],
                         msg['stanza_id']['id'],
                         f"> {parse_body}",
@@ -308,7 +341,7 @@ class MUCBot(slixmpp.ClientXMPP):
 
                     # generate description
                     try:
-                        desc = await describe_from_url(msg['from'].bare, url)
+                        desc = await describe_from_url(msg['from'].bare, url, msg['from'].resource)
                     except Exception as e:
                         print(e)
                         reaction_msg = self.make_message(
@@ -324,7 +357,7 @@ class MUCBot(slixmpp.ClientXMPP):
                         continue
 
                     if desc != "":
-                        message: slixmpp.stanza.Message = self['xep_0461'].make_reply(
+                        message: slixmpp.stanza.Message = self.plugin['xep_0461'].make_reply(
                             msg['from'],
                             msg['stanza_id']['id'],
                             url,
