@@ -61,7 +61,7 @@ async def describe_from_bytes(muc: str, image_content: bytes, content_type: str,
                 data=image_content,
                 mime_type=content_type,
             ),
-            'Describe this image with as much detail as possible in 1 to 2 sentences'
+            f'Describe this image from {msg_from} with as much detail as possible in 1 to 2 sentences'
         ]
     ),
 
