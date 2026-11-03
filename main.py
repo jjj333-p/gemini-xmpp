@@ -531,7 +531,11 @@ class MUCBot(slixmpp.ClientXMPP):
 
                     # generate description
                     try:
-                        desc = await describe_from_url(self, msg['from'].bare, url, msg['body'], msg['from'].resource)
+                        desc = await describe_from_url(
+                            self, msg['from'].bare, url,
+                            msg['body'].replace(url, "<raw url of attached media>"),
+                            msg['from'].resource
+                        )
                     except Exception as e:
                         print(e)
                         reaction_msg = self.make_message(
