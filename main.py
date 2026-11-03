@@ -383,18 +383,8 @@ class MUCBot(slixmpp.ClientXMPP):
         self.add_event_handler("session_start", self.start)
 
         # The groupchat_message event is triggered whenever a message
-        # stanza is received from any chat room. If you also also
-        # register a handler for the 'message' event, MUC messages
-        # will be processed by both handlers.
+        # stanza is received from any MUC.
         self.add_event_handler("groupchat_message", self.muc_message)
-
-        # The groupchat_presence event is triggered whenever a
-        # presence stanza is received from any chat room, including
-        # any presences you send yourself. To limit event handling
-        # to a single room, use the events muc::room@server::presence,
-        # muc::room@server::got_online, or muc::room@server::got_offline.
-        self.add_event_handler("muc::%s::got_online" % self.rooms[0],
-                               self.muc_online)
 
         self.register_plugin('xep_0030')  # Service Discovery
         self.register_plugin('xep_0045')  # Multi-User Chat
@@ -560,11 +550,6 @@ class MUCBot(slixmpp.ClientXMPP):
                             mtype='groupchat'
                         )
                         message.send()
-
-    def muc_online(self, presence):
-        pass
-        # if presence['muc']['nick'] != self.nick:
-        #     print(f"User online: {presence['muc']['nick']} (Role: {presence['muc']['role']})")
 
 
 if __name__ == '__main__':
