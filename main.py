@@ -197,6 +197,7 @@ def make_send_file(xmpp_client, muc_jid: JID) -> Callable[[str], None]:
         """
         Send any url as an attachment to the XMPP muc.
         Use if there is any relevant media you would like to show the user.
+        You do *not* need to reattach media the user has sent you.
         :param url: the url of the attachment
         """
         # boilerplate message obj
