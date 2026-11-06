@@ -182,7 +182,7 @@ def make_fetch_webpage(client, muc_jid: JID) -> Callable[..., CoroutineType[Any,
             # boilerplate message obj
             message = client.make_message(
                 mto=muc_jid,
-                mbody=f"/me is fetching the url `{url}`",
+                mbody=e_str,
                 mtype='groupchat'
             )
             message.send()
